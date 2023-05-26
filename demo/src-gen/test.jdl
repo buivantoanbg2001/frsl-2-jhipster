@@ -1,0 +1,334 @@
+/**
+* class CreditPayment
+*/
+entity CreditPayment
+
+relationship OneToOne {
+	CreditPayment{payment required} to Payment
+}
+
+relationship OneToOne {
+	CreditPayment{track} to CreditPayment
+}
+
+/**
+* class Payment
+*/
+entity Payment {
+	amount Double required
+}
+
+relationship OneToOne {
+	Payment{track} to Payment
+}
+
+/**
+* class Sale
+*/
+entity Sale {
+	id String required
+	total Double required
+	isComplete Boolean required
+}
+
+relationship OneToOne {
+	Sale{date required} to Date
+}
+
+relationship OneToOne {
+	Sale{track} to Sale
+}
+
+/**
+* class Cashier
+*/
+entity Cashier {
+	name String required
+}
+
+relationship OneToOne {
+	Cashier{track} to Cashier
+}
+
+/**
+* class SalesLineItem
+*/
+entity SalesLineItem {
+	quantity Integer required
+}
+
+relationship OneToOne {
+	SalesLineItem{track} to SalesLineItem
+}
+
+/**
+* class ProductDescription
+*/
+entity ProductDescription {
+	desc String required
+	price Double required
+	tax Double required
+	upc String required
+}
+
+relationship OneToOne {
+	ProductDescription{track} to ProductDescription
+}
+
+/**
+* class GiftCertificate
+*/
+entity GiftCertificate {
+	id String required
+	amount Double required
+}
+
+relationship OneToOne {
+	GiftCertificate{track} to GiftCertificate
+}
+
+/**
+* class AuthService
+*/
+entity AuthService {
+	name String required
+	address String required
+}
+
+relationship OneToOne {
+	AuthService{track} to AuthService
+}
+
+/**
+* class Customer
+*/
+entity Customer {
+	name String required
+}
+
+relationship OneToOne {
+	Customer{track} to Customer
+}
+
+/**
+* class CashPayment
+*/
+entity CashPayment {
+	amountTendered Double required
+}
+
+relationship OneToOne {
+	CashPayment{payment required} to Payment
+}
+
+relationship OneToOne {
+	CashPayment{track} to CashPayment
+}
+
+/**
+* class Item
+*/
+entity Item {
+	id String required
+}
+
+relationship OneToOne {
+	Item{track} to Item
+}
+
+/**
+* class Store
+*/
+entity Store {
+	address String required
+	name String required
+}
+
+relationship OneToOne {
+	Store{track} to Store
+}
+
+/**
+* class ProductCatalog
+*/
+entity ProductCatalog
+
+relationship OneToOne {
+	ProductCatalog{track} to ProductCatalog
+}
+
+/**
+* class Date
+*/
+entity Date {
+	value String required
+}
+
+relationship OneToOne {
+	Date{track} to Date
+}
+
+/**
+* class GiftCertPayment
+*/
+entity GiftCertPayment
+
+relationship OneToOne {
+	GiftCertPayment{payment required} to Payment
+}
+
+relationship OneToOne {
+	GiftCertPayment{track} to GiftCertPayment
+}
+
+/**
+* class CreditCard
+*/
+entity CreditCard {
+	number String required
+	expireDate String required
+}
+
+relationship OneToOne {
+	CreditCard{track} to CreditCard
+}
+
+/**
+* class Register
+*/
+entity Register
+
+relationship OneToOne {
+	Register{track} to Register
+}
+
+/**
+* association WorksOn
+*/
+relationship OneToOne {
+	Cashier{register required} to Register
+	Register{cashier} to Cashier
+}
+
+/**
+* association LogsCompleted
+*/
+relationship ManyToOne {
+	Sale{store} to Store
+}
+
+/**
+* association DescribedBy
+*/
+relationship ManyToOne {
+	SalesLineItem{productDesc required} to ProductDescription
+}
+
+/**
+* association ContainedIn
+*/
+relationship ManyToOne {
+	SalesLineItem{sale required} to Sale
+}
+
+/**
+* association CheckedBy
+*/
+relationship ManyToOne {
+	CreditPayment{creditCard required} to CreditCard
+}
+
+/**
+* association Stocks
+*/
+relationship ManyToOne {
+	Item{store required} to Store
+}
+
+/**
+* association RecordsSaleOf
+*/
+relationship ManyToOne {
+	Item{salesLineItem} to SalesLineItem
+}
+
+/**
+* association ProvidedWith
+*/
+relationship ManyToOne {
+	Store{authService required} to AuthService
+	AuthService{store required} to Store
+}
+
+/**
+* association UsedBy
+*/
+relationship ManyToOne {
+	Store{prdtCtlg required} to ProductCatalog
+}
+
+/**
+* association PaidWith
+*/
+relationship OneToOne {
+	GiftCertPayment{giftCert required} to GiftCertificate
+	GiftCertificate{payment} to GiftCertPayment
+}
+
+/**
+* association Approves
+*/
+relationship ManyToOne {
+	CreditPayment{authService required} to AuthService
+}
+
+/**
+* association IsFor
+*/
+relationship ManyToOne {
+	Sale{customer required} to Customer
+}
+
+/**
+* association Logs
+*/
+relationship ManyToOne {
+	CreditPayment{store required} to Store
+}
+
+/**
+* association PaidBy
+*/
+relationship OneToOne {
+	Sale{payment required} to Payment
+	Payment{sale} to Sale
+}
+
+/**
+* association Contains
+*/
+relationship ManyToOne {
+	ProductDescription{prdtCtlg required} to ProductCatalog
+}
+
+/**
+* association CapturedOn
+*/
+relationship OneToOne {
+	Sale{register required} to Register
+	Register{sale} to Sale
+}
+
+/**
+* association Describes
+*/
+relationship ManyToOne {
+	Item{prdDesc required} to ProductDescription
+}
+
+/**
+* association Houses
+*/
+relationship ManyToOne {
+	Register{store required} to Store
+}

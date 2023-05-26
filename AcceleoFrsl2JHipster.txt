@@ -1,0 +1,615 @@
+[comment encoding = UTF-8 /]
+[module generateMain('platform:/resource/org.eclipse.sme.frsl.ecore/model/FRSL.ecore', 'http://www.eclipse.org/ocl/2015/Pivot')]
+
+[comment] 1. Generate Main Template [/comment]
+[comment] Hàm chính, khuôn mẫu sinh văn bản mã nguồn [/comment]
+[template public genMain(aFrslModel : FrslModel)]
+[comment @main/]
+[comment] jdl file from FRSL [/comment]
+[aFrslModel.genJdlFile()/]
+
+[comment] java files from FRSL [/comment]
+[for (usecase : Usecase | aFrslModel.usecase)]
+[usecase.genJavaFileFromUsecase()/]
+[/for]
+[/template]
+
+[comment] 2. Generate JDL file [/comment]
+[comment] Hàm sinh tệp JDL chứa các lớp đối tượng và mối quan hệ giữa chúng [/comment]
+[template public genJdlFile(frslModel : FrslModel) post(trim())]
+[file (frslModel.name.first(frslModel.name.lastIndexOf('.') - 1) + '.jdl', false, 'UTF-8')]
+[comment] entities [/comment]
+[frslModel.genEntity()/]
+
+[comment] relationships [/comment]
+[frslModel.genAssociation()/]
+[/file]
+[/template]
+
+[comment] 2.1. Generate domain classes, e.g., class Customer [/comment]
+[comment] Hàm sinh các lớp đối tượng [/comment]
+[template public genEntity(frslModel : FrslModel) post(trim())]
+[for (class: Class | frslModel.getDomClass()) separator('\n')]
+[let ownedCustomProperty: Sequence(Property) = getCustomProperty(frslModel, class)]
+/**
+* class [class.name/]
+*/
+[if (class.ownedProperties->select(p | p.isPrimitive())->size() = 0)]
+entity [class.name/]
+[else]
+entity [class.name/] {
+[for (p: Property | class.ownedProperties->select(p | p.isPrimitive()))]
+	[p.name/] [p.genPrimitiveType()/][if (p.isRequired)] required[/if]
+[/for]
+}
+[/if]
+[if (ownedCustomProperty->size() > 0)]
+
+relationship OneToOne {
+[for (p: Property | ownedCustomProperty)]
+	[class.name/]{[p.name/] required} to [p.getPropertyType()/]
+[/for]
+}
+[/if]
+[comment] Xử lý phần kế thừa [/comment]
+[let superClass: Class = class.superClasses->any(c | c.name <> '_DomainClass')]
+[if (superClass <> null)]
+
+relationship OneToOne {
+	[class.name/]{[superClass.name.toLowerFirst()/] required} to [superClass.name/]
+}
+[/if]
+[/let]
+
+[comment] Xây dựng mối quan hệ _Tracks(_DomainClass, DomainClass) [/comment]
+relationship OneToOne {
+	[class.name/]{track} to [class.name/]
+}
+[/let]
+[/for]
+[/template]
+
+[comment] 2.2. Generate associations [/comment]
+[comment] Hàm sinh mối quan hệ giữa các lớp [/comment]
+[template public genAssociation(frslModel : FrslModel) post(trim())]
+[for (associationClass: AssociationClass | frslModel.getAssocs()) separator('\n')]
+[let firstProperty: Property = associationClass.ownedProperties->at(1)]
+[let secondProperty: Property = associationClass.ownedProperties->at(2)]
+/**
+* association [associationClass.name/]
+*/
+[if (getRelationshipType(firstProperty, secondProperty) = 'ManyToMany')]
+relationship ManyToOne {
+	[firstProperty.getPropertyType()/]{[secondProperty.name/][if (secondProperty.isRequired)] required[/if]} to [secondProperty.getPropertyType()/]
+	[secondProperty.getPropertyType()/]{[firstProperty.name/][if (firstProperty.isRequired)] required[/if]} to [firstProperty.getPropertyType()/]
+}
+[elseif (getRelationshipType(firstProperty, secondProperty) = 'ManyToOne')]
+relationship ManyToOne {
+	[firstProperty.getPropertyType()/]{[secondProperty.name/][if (secondProperty.isRequired)] required[/if]} to [secondProperty.getPropertyType()/]
+}
+[elseif (getRelationshipType(firstProperty, secondProperty) = 'OneToMany')]
+relationship ManyToOne {
+	[secondProperty.getPropertyType()/]{[firstProperty.name/][if (firstProperty.isRequired)] required[/if]} to [firstProperty.getPropertyType()/]
+}
+[else]
+relationship OneToOne {
+	[if (secondProperty.isRequired)]
+	[firstProperty.getPropertyType()/]{[secondProperty.name/] required} to [secondProperty.getPropertyType()/]
+	[secondProperty.getPropertyType()/]{[firstProperty.name/]} to [firstProperty.getPropertyType()/]
+	[else]
+	[firstProperty.getPropertyType()/]{[secondProperty.name/]} to [secondProperty.getPropertyType()/]
+	[secondProperty.getPropertyType()/]{[firstProperty.name/][if (firstProperty.isRequired)] required[/if]} to [firstProperty.getPropertyType()/]
+	[/if]
+}
+[/if]
+[/let]
+[/let]
+[/for]
+[/template]
+
+[template public genPrimitiveType(p : Property) post(trim())]
+	[if (p.isPrimitive())]
+		[if (p.type.name = 'Real')]
+			Double
+		[else]
+			[p.type.name/]
+		[/if]
+	[/if]
+[/template]
+
+[comment] 3. Generate Usecase [/comment]
+[comment] Sinh tệp Java từ usecase [/comment]
+[template public genJavaFileFromUsecase(usecase : Usecase)]
+[file (usecase.name + '.java', false, 'UTF-8')]
+import java.util.ArrayList;
+
+public class [usecase.name/]Usecase {
+
+	// Properties
+	[usecase.genClassProperties()/]
+
+	// Constructor
+	public [usecase.name/]Usecase() {}
+
+	// ucPrecondition
+	[usecase.genUcPrecondition()/]
+
+	// ucPostcondition
+	[usecase.genUcPostcondition()/]
+
+	// Step
+	[usecase.firstStep.genRegressionStep()/]
+
+	// AltFlow
+	[for (flow: AltFlow | usecase.eAllContents(AltFlow))]
+	[flow.genAltFlow()/]
+	[/for]
+
+	// Extension Point
+	[for (extPoint: ExtensionPoint | usecase.extPoint)]
+	[extPoint.genExtPoint()/]
+	[/for]
+}
+[/file]
+[/template]
+
+[comment] 3.1. Generate Properties [/comment]
+[comment] Hàm sinh các thuộc tính của usecase [/comment]
+[template public genClassProperties(usecase : Usecase)]
+[for (content : ObjVar | usecase.getProperties()) separator('\n')]
+[if (content.type.isMany)]
+private ArrayList<[content.type.getPropertyType()/]> [content.name/];[else]
+private [content.type.getPropertyType()/] [content.name/];[/if]
+[/for]
+[/template]
+
+[comment] 3.2. Generate Usecase Condition [/comment]
+[comment] 3.2.1. Generate Usecase Precondition [/comment]
+[comment] Hàm sinh tiền điều kiện của usecase [/comment] 
+[template public genUcPrecondition(usecase : Usecase)]
+[let snapshot: SnapshotPattern = usecase.precondition.snapshot]
+public boolean ucPrecondition() {
+	[if (snapshot.link->size() = 0 and snapshot.constraint->size() = 0)]
+	return true;
+	[else]
+	return (
+		[if (snapshot.link->size() > 0)]
+		[for (link : VarLink | snapshot.link) separator(' && \n\t\t')][link.varLinkCompile()/][/for][if (snapshot.constraint->size() > 0)] &&[/if]
+		[/if]	
+		[if (snapshot.constraint->size() > 0)]
+		[for (con : Constraint | snapshot.constraint) separator(' && \n\t\t')][con.constraintCompile()/][/for]
+		[/if]
+	);
+	[/if]
+}
+[/let]
+[/template]
+
+[comment] 3.2.2. Generate Usecase Postcondition [/comment]
+[comment] Hàm sinh hậu điều kiện của usecase [/comment]
+[template public genUcPostcondition(usecase : Usecase)]
+[let snapshot: SnapshotPattern = usecase.postcondition.snapshot]
+[let presnapshotLinkSet: Sequence(String) = usecase.precondition.snapshot.link->collect(l: VarLink | 
+			l.objVar->collect(o: ObjVar | o.name)->sep(',')->toString() + ',' + l.isNeg)]
+[let linkSet: OrderedSet(VarLink) = snapshot.link->select(
+			l: VarLink | not presnapshotLinkSet->includes(l.objVar->collect(o: ObjVar | o.name)->sep(',')->toString() + ',' + l.isNeg))]
+[let constraintSet: OrderedSet(Constraint) = snapshot.constraint]
+public boolean ucPostcondition() {
+	[if (linkSet->size() = 0 and constraintSet->size() = 0)]
+	return true;
+	[else]
+	return (
+		[if (linkSet->size() > 0)]
+		[for (link : VarLink | linkSet) separator(' && \n\t\t')][link.varLinkCompile()/][/for][if (constraintSet->size() > 0)] &&[/if]
+		[/if]	
+		[if (constraintSet->size() > 0)]
+		[for (con : Constraint | constraintSet) separator(' && \n\t\t')][con.constraintCompile()/][/for]
+		[/if]
+	);
+	[/if]
+}
+[/let][/let][/let][/let]
+[/template]
+
+[comment] 3.3. Generate Regression Step [/comment]
+[comment] Hàm sẽ sinh step hiện tại và nextStep, tạo thành hàm hồi quy cho đến khi nextStep = undefined [/comment] 
+[template public genRegressionStep(step : Step)]
+[if (step.oclIsTypeOf(ActStep))][step.oclAsType(ActStep).genActStep()/][elseif (step.oclIsTypeOf(RejoinStep))]
+[step.oclAsType(RejoinStep).genRejoinStep()/][elseif (step.oclIsTypeOf(UCStep))]
+[step.oclAsType(UCStep).genUCStep()/][/if]
+[comment] Sinh nextStep [/comment]
+[if not (step.nextStep.oclIsUndefined())]
+[step.nextStep.genRegressionStep()/][/if]
+[/template]
+
+[comment] 3.3.1. Generate ActStep [/comment]
+[comment] Hàm sinh Action Step [/comment] 
+[template public genActStep(step : ActStep)]
+[let stepName: String = step.name.substring(step.name.indexOf(':') + 1)]
+// --------------------- [stepName/] ---------------------
+[step.genActStepPrecondition()/]
+[step.genActStepPostcondition()/]
+[step.genAction()/]
+[/let]
+[/template]
+
+[comment] 3.3.1.1. Generate ActStep Precondition [/comment]
+[comment] Hàm sinh tiền điều kiện của ActStep [/comment] 
+[template public genActStepPrecondition(step : ActStep)]
+[let stepName: String = step.name.substring(step.name.indexOf(':') + 1)]
+[let snapshot: SnapshotPattern = step.preSnapshot]
+[let objVarSet: OrderedSet(ObjVar) = snapshot.object->select(o: ObjVar | o.isMatched = true)]
+[let linkSet: OrderedSet(VarLink) = snapshot.link]
+[let constraintSet: OrderedSet(Constraint) = snapshot.constraint]
+public boolean [stepName/]_pre([for (obj : ObjVar | objVarSet) separator(', ')][obj.type.getPropertyType()/] $[obj.name/][/for]) {
+	[if (objVarSet->size() = 0 and linkSet->size() = 0 and constraintSet->size() = 0)]
+	return true;
+	[else]
+	return (
+		[if (objVarSet->size() > 0)]
+		[for (obj : ObjVar | objVarSet) separator(' && \n\t\t')]this.[obj.name/] == $[obj.name/][/for][if (linkSet->size() > 0)] &&[/if]
+		[/if]		
+		[if (linkSet->size() > 0)]
+		[for (link : VarLink | linkSet) separator(' && \n\t\t')][link.varLinkCompile()/][/for][if (constraintSet->size() > 0)] &&[/if]
+		[/if]		
+		[if (constraintSet->size() > 0)]
+		[for (con : Constraint | constraintSet) separator(' && \n\t\t')][con.constraintCompile()/][/for]
+		[/if]
+	);
+	[/if]
+}
+[/let][/let][/let][/let][/let]
+[/template]
+
+[comment] 3.3.1.2. Generate ActStep Precondition [/comment]
+[comment] Hàm sinh hậu điều kiện của ActStep [/comment] 
+[template public genActStepPostcondition(step : ActStep)]
+[let stepName: String = step.name.substring(step.name.indexOf(':') + 1)]
+[let snapshot: SnapshotPattern = step.postSnapshot]
+[let presnapshotLinkSet: Sequence(String) = step.preSnapshot.link->collect(l: VarLink | 
+			l.objVar->collect(o: ObjVar | o.name)->sep(',')->toString() + ',' + l.isNeg)]
+[let linkSet: OrderedSet(VarLink) = snapshot.link->select(
+			l: VarLink | not presnapshotLinkSet->includes(l.objVar->collect(o: ObjVar | o.name)->sep(',')->toString() + ',' + l.isNeg))]
+[let constraintSet: OrderedSet(Constraint) = snapshot.constraint]
+public boolean [stepName/]_post() {
+	[if (linkSet->size() = 0 and constraintSet->size() = 0)]
+	return true;
+	[else]
+	return (	
+		[if (linkSet->size() > 0)]
+		[for (link : VarLink | linkSet) separator(' && \n\t\t')][link.varLinkCompile()/][/for][if (constraintSet->size() > 0)] &&[/if]
+		[/if]		
+		[if (constraintSet->size() > 0)]
+		[for (con : Constraint | constraintSet) separator(' && \n\t\t')][con.constraintCompile()/][/for]
+		[/if]
+	);
+	[/if]
+}
+[/let][/let][/let][/let][/let]
+[/template]
+
+[comment] 3.3.1.3. Generate ActStep Actions [/comment]
+[comment] Hàm sinh tương tác giữa tác nhân và hệ thống [/comment] 
+[template public genAction(step : ActStep)]
+[let stepName: String = step.name.substring(step.name.indexOf(':') + 1)]
+[let sysStep: OrderedSet(SystemAction) = step.action->select(a: Action | a.oclIsTypeOf(SystemAction))]
+[if (sysStep->size() > 0)]
+public Object['[]'/] [stepName/]() {
+	[for (action: SystemAction | sysStep)]
+	[action.actionCompile()/]
+	[/for]
+	return new Object['[]'/] { [sysStep->collect(a: SystemAction | a.objVars->at(1).name)->sep(', ')->toString()/] };
+}
+[else]
+public void [stepName/]() {}
+[/if]
+[/let]
+[/let]
+[/template]
+
+[comment] 3.3.2. Generate RejoinStep [/comment]
+[comment] Hàm sinh Rejoin Step [/comment] 
+[template public genRejoinStep(step : RejoinStep)]
+[let stepName: String = step.name.substring(step.name.indexOf(':') + 1)]
+[let snapshot: SnapshotPattern = step.condition]
+[let objVarSet: OrderedSet(ObjVar) = snapshot.object->select(o: ObjVar | o.isMatched = true)]
+[let linkSet: OrderedSet(VarLink) = snapshot.link]
+[let constraintSet: OrderedSet(Constraint) = snapshot.constraint]
+// --------------------- [stepName/] ---------------------
+public boolean [stepName/]_condition([for (obj : ObjVar | objVarSet) separator(', ')][obj.type.getPropertyType()/] $[obj.name/][/for]) {
+	[if (objVarSet->size() = 0 and linkSet->size() = 0 and constraintSet->size() = 0)]
+	return true;
+	[else]
+	return (
+		[if (objVarSet->size() > 0)]
+		[for (obj : ObjVar | objVarSet) separator(' && \n\t\t')]this.[obj.name/] == $[obj.name/][/for][if (linkSet->size() > 0)] &&[/if]
+		[/if]		
+		[if (linkSet->size() > 0)]
+		[for (link : VarLink | linkSet) separator(' && \n\t\t')][link.varLinkCompile()/][/for][if (constraintSet->size() > 0)] &&[/if]
+		[/if]		
+		[if (constraintSet->size() > 0)]
+		[for (con : Constraint | constraintSet) separator(' && \n\t\t')][con.constraintCompile()/][/for]
+		[/if]
+	);
+	[/if]
+}
+
+public void [stepName/]() {}
+[/let][/let][/let][/let][/let]
+[/template]
+
+[comment] 3.3.3. Generate UCStep [/comment]
+[comment] Hàm sinh usecase Step [/comment] 
+[template public genUCStep(step : UCStep)]
+[let stepName: String = step.name.substring(step.name.indexOf(':') + 1)]
+[let usecase: Usecase = step.includedUC]
+// --------------------- [stepName/] ---------------------
+public void [stepName/]() {
+	// Chuyển sang use case [usecase.name/]UseCase
+}
+[/let][/let]
+[/template]
+
+[comment] 3.4. Generate AltFlow [/comment]
+[comment] Hàm sinh luồng thay thế [/comment] 
+[template public genAltFlow(flow : AltFlow)]
+[let snapshot: SnapshotPattern = flow.condition]
+[let objVarSet: OrderedSet(ObjVar) = snapshot.object->select(o: ObjVar | o.isMatched = true)]
+[let linkSet: OrderedSet(VarLink) = snapshot.link]
+[let constraintSet: OrderedSet(Constraint) = snapshot.constraint]
+// --------------------- [flow.name/] ---------------------
+public boolean [flow.name/]_condition([for (obj : ObjVar | objVarSet) separator(', ')][obj.type.getPropertyType()/] $[obj.name/][/for]) {
+	[if (objVarSet->size() = 0 and linkSet->size() = 0 and constraintSet->size() = 0)]
+	return true;
+	[else]
+	return (
+		[if (objVarSet->size() > 0)]
+		[for (obj : ObjVar | objVarSet) separator(' && \n\t\t')]this.[obj.name/] == $[obj.name/][/for][if (linkSet->size() > 0)] &&[/if]
+		[/if]		
+		[if (linkSet->size() > 0)]
+		[for (link : VarLink | linkSet) separator(' && \n\t\t')][link.varLinkCompile()/][/for][if (constraintSet->size() > 0)] &&[/if]
+		[/if]		
+		[if (constraintSet->size() > 0)]
+		[for (con : Constraint | constraintSet) separator(' && \n\t\t')][con.constraintCompile()/][/for]
+		[/if]
+	);
+	[/if]
+}
+
+[flow.altStep.genRegressionStep()/]
+// --------------------- end [flow.name/] ---------------------
+[/let][/let][/let][/let]
+[/template]
+
+[comment] 3.5. Generate ExtPoint [/comment]
+[comment] Hàm sinh điểm mở rộng [/comment] 
+[template public genExtPoint(extPoint : ExtensionPoint)]
+[let snapshot: SnapshotPattern = extPoint.condition]
+[let objVarSet: OrderedSet(ObjVar) = snapshot.object->select(o: ObjVar | o.isMatched = true)]
+[let linkSet: OrderedSet(VarLink) = snapshot.link]
+[let constraintSet: OrderedSet(Constraint) = snapshot.constraint]
+// --------------------- [extPoint.name/] ---------------------
+public boolean [extPoint.name.toLowerFirst()/]_condition([for (obj : ObjVar | objVarSet) separator(', ')][obj.type.getPropertyType()/] $[obj.name/][/for]) {
+	[if (objVarSet->size() = 0 and linkSet->size() = 0 and constraintSet->size() = 0)]
+	return true;
+	[else]
+	return (
+		[if (objVarSet->size() > 0)]
+		[for (obj : ObjVar | objVarSet) separator(' && \n\t\t')]this.[obj.name/] == $[obj.name/][/for][if (linkSet->size() > 0)] &&[/if]
+		[/if]		
+		[if (linkSet->size() > 0)]
+		[for (link : VarLink | linkSet) separator(' && \n\t\t')][link.varLinkCompile()/][/for][if (constraintSet->size() > 0)] &&[/if]
+		[/if]		
+		[if (constraintSet->size() > 0)]
+		[for (con : Constraint | constraintSet) separator(' && \n\t\t')][con.constraintCompile()/][/for]
+		[/if]
+	);
+	[/if]
+}
+[/let][/let][/let][/let]
+
+[for (e: Extend | extPoint.extend)]
+[let usecase: Usecase = e.extension]
+public void [extPoint.name.toLowerFirst()/]() {
+	// Chuyển sang use case [usecase.name/]UseCase
+}[/let][/for]
+[/template]
+
+[comment] Nếu p là 1 tập hợp, lấy ra kiểu dữ liệu của phần từ trong tập hợp đó [/comment]
+[query public getCollectElemType(p : Property) : Type = 
+	if ( p.type.oclIsKindOf(CollectionType) ) then
+		p.type.oclAsType(CollectionType).elementType	
+	else
+		null
+	endif
+/]
+
+[comment] Lấy ra kiểu dữ liệu của p, nếu p là tập hợp, lấy ra kiểu dữ liệu của phần tử trong tập hợp [/comment]
+[query public getPropertyType(p: Property): String = 
+	if (p.type.oclIsKindOf(CollectionType)) then
+		p.getCollectElemType().name
+	else
+		p.type.name
+	endif
+/]
+
+[comment] Siêu khái niệm FrslModel kế thừa Model của siêu mô hình Pivot nên sẽ cần trỏ đến ba gói Package [/comment]
+[comment] 1. Package pos: chứa Class và Association [/comment]
+[comment] 2. Package uscase: chứa các usecase [/comment]
+[comment] 3. Package $$: lưu trữ kiểu dữ liệu tập hợp trong OCL: Set, Bag, ... [/comment]
+[query public getDomModel(aFrslModel : FrslModel): Package = 
+	aFrslModel.ownedPackages->any(p | p.name <> 'usecase' and p.name <> '$$')/]
+
+[comment] Lấy các Class được định nghĩa trong mô hình, có tên khác _DomainClass vì các Class đều kế thừa từ Class này [/comment]
+[query public getDomClass(aFrslModel : FrslModel) : Set(Class) = 
+	aFrslModel.getDomModel().ownedClasses->select(c: Class | c.oclIsTypeOf(Class) and c.name <> '_DomainClass')->asSet()/]
+
+[comment] Check xem p có phải là kiểu dữ liệu nguyên thuỷ ko [/comment]
+[query public isPrimitive(p: Property): Boolean = 
+	p.type.oclIsKindOf(PrimitiveType)
+/]
+
+[comment] Check xem p có phải là tập hợp các phần tử có kiểu dữ liệu nguyên thuỷ ko [/comment]
+[query public isPrimitiveSet(p: Property): Boolean = 
+	p.isMany and (p.getCollectElemType().eClass().name = 'PrimitiveType') 
+/]
+
+[comment] Lấy ra các mối quan hệ được định nghĩa, có tên khác _Tracks do đây là mối quan hệ giữa _DomainClass với chính nó [/comment]
+[query public getAssocs(frslModel: FrslModel) : Set(AssociationClass) =
+	let domModel: Package = frslModel.getDomModel() in 
+		domModel.ownedClasses->select(c: Class | c.oclIsTypeOf(AssociationClass) and c.name <> '_Tracks') /]
+
+[comment] Lấy các mối quan hệ mà tham số class sở hữu, bằng cách check tên class với từng tên của đối tượng trong mối quan hệ  [/comment]
+[query public getOwnedAssocs(aFrslModel : FrslModel, class: Class): Set(AssociationClass) = 
+	let assocs: Set(AssociationClass) = aFrslModel.getAssocs() 
+	in assocs->select(a | let p1: Property = a.ownedProperties->at(1), p2: Property = a.ownedProperties->at(2)
+					in p1.getPropertyType() = class.name or p2.getPropertyType() = class.name)
+/]
+
+
+[comment] Lấy danh sách các assocs trong class đó [/comment]
+[comment] Do trong class.ownedProperties chứa tất cả mọi thứ liên quan đến class, đó là các thuộc tính, các mối quan hệ và [/comment]
+[comment] các class tham gia mối quan hệ đó [/comment]
+[comment] Ta sẽ loại các thuộc tính là nguyên thủy và các thuộc tính là Assocs nhưng có sự có mặt của class gốc [/comment]
+[comment] Khi đó ta sẽ lấy được các thuộc tính custom [/comment]
+[query public getCustomProperty(aFrslModel : FrslModel, class: Class): Sequence(Property) = 
+	let ownedAssocs: Set(AssociationClass) = getOwnedAssocs(aFrslModel, class)
+	in class.ownedProperties->select(p: Property | not (
+			p.isPrimitive() or 
+			ownedAssocs->exists(a: AssociationClass | 
+				a.name = p.getPropertyType() or 
+				a.ownedProperties->subOrderedSet(1, 2)->exists(pp: Property | pp.getPropertyType() = p.getPropertyType())					
+		)))->asSequence()
+/]
+
+[comment] Check kiểu của mối quan hệ [/comment]
+[query public getRelationshipType(p1: Property, p2: Property): String = 
+	if (p1.type.oclIsKindOf(CollectionType)) then
+ 		if (p2.type.oclIsKindOf(CollectionType)) then
+			'ManyToMany'
+		else
+			'ManyToOne'
+		endif
+	else
+		if (p2.type.oclIsKindOf(CollectionType)) then
+			'OneToMany'
+		else
+			'OneToOne'
+		endif
+	endif
+/]
+
+[comment] Lấy các thành phần của Constraint, dựa theo thứ tự vị trí của nó [/comment]
+[comment] Các Constraint có các phần nội dung là các thành phần nhỏ hơn, tách cho đến đơn vị bé nhất là self [/comment]
+[comment] Cần lấy ra các phần tử những vẫn phải giữ đc tính nguyên vẹn. VD: chỉ lấy ra self.sale thay vì cả self.sale và self [/comment]
+[comment] Các phần tử nguyên vẹn này đứng sau VariableExp (thuộc tính biến) và OperationCallExp (thuộc tính toán tử) [/comment]
+[query public getConstraintElement(oclConstr: Constraint) : Sequence(PropertyCallExp) = 
+	let variableAndOperationSeq: Sequence(OclAny) = oclConstr.eAllContents()->select(c | 
+			c.oclIsTypeOf(VariableExp) or c.oclIsTypeOf(OperationCallExp)),
+		indexSeq: Sequence(Integer) = variableAndOperationSeq->collect(v| oclConstr.eAllContents()->indexOf(v) + 1),
+		result: Sequence(OclAny) = indexSeq->select(i | if (oclConstr.eAllContents()->at(i).oclIsTypeOf(PropertyCallExp)) then 
+				true 
+			else false 
+			endif)->collect(i | oclConstr.eAllContents()->at(i))
+	in result
+/]
+ 
+[comment] Lấy ra các thuộc tính của usecase làm thuộc tính trong class Java [/comment]
+[comment] Đầu tiên lấy các thuộc tính ObjVar có isMatched = true thể hiện việc liên kết giữa đối tượng phần mềm và đối tượng vật lý [/comment]
+[comment] Sau đó, cần lọc để mỗi thuộc tính chỉ lấy duy nhất 1 đối tượng, bằng cách duyệt tất cả trong tập thuoojc tính đã tìm được [/comment]
+[comment] bên trên, và check xem đấy có phải là thuộc tính có tên xuất hiện lần đầu hay ko [/comment]
+[query public getProperties(usecase: Usecase) : Sequence(ObjVar) = 
+	let propertiesSet: Sequence(ObjVar) = usecase.eAllContents(ObjVar)->select(p | p.isMatched = true)
+	in propertiesSet->select(content | 
+		if (content = propertiesSet->select(p | p.name = content.name)->first()) then 
+			true 
+		else 
+			false 
+		endif)
+/]
+
+[comment] Biên dịch VarLink [/comment]
+[comment] Nếu là _Tracks thì getTrack() [/comment]
+[comment] Nếu không thì kiểm tra xem có phải là mqh giữa đối tượng được thừa kế ko, do nếu là đối tượng thừa kế cần thêm 1 bước để lấy ra [/comment]
+[comment] phần tử kiểu dữ liệu gốc. VD: (sale, cashPayment) -> cashPayment.getPayment().getSale() == sale, phần getPayment() được thêm vào [/comment]
+[comment] có thể qua nhiều lớp thừa kế nên việc thêm vào cần thực hiện thủ công [/comment]
+[comment] Nếu ko p là mqh giữa các đối tượng thì cần check đâu là đối tượng nhiều để lấy ra trỏ đến đối tượng ít  [/comment]
+[query public varLinkCompile(link: VarLink): String = 
+	let v1: ObjVar = link.objVar->at(1),
+		v2: ObjVar = link.objVar->at(2),
+		firstProperty: Property = link.assoc.ownedProperties->at(1),
+		secondProperty: Property = link.assoc.ownedProperties->at(2)
+	in if (link.assoc.name = '_Tracks') then 
+			'this.' + v2.name + '.getTrack()' + 
+			if (link.isNeg) then ' != ' else ' == ' endif + 'this.' + v1.name
+		else
+			if (link.assoc.ownedProperties->any(p: Property| p.getPropertyType() = v1.type.getPropertyType()) = null or 
+				link.assoc.ownedProperties->any(p: Property| p.getPropertyType() = v2.type.getPropertyType()) = null) then
+			'// TODO: Cần xử lý thủ công quan hệ giữa đối tượng kế thừa ' + '(' + v1.name + ', ' + v2.name + '): ' + link.assoc.name
+			else 
+				if (link.assoc.ownedProperties->any(p: Property| p.getPropertyType() = v2.type.getPropertyType()).isMany) then
+					'this.' + v2.name + '.get' + firstProperty.name.toUpperFirst() + '()' + 
+					if (link.isNeg) then ' != ' else ' == ' endif + 'this.' + v1.name
+				else
+					'this.' + v1.name + '.get' + secondProperty.name.toUpperFirst() + '()' + 
+					if (link.isNeg) then ' != ' else ' == ' endif + 'this.' + v2.name
+				endif
+			endif
+		endif
+/]
+
+[comment] Biên dịch các thành phần con nguyên vẹn của biểu thức ràng buộc OCL [/comment]
+[comment] Sửa self thành this, nếu thành phần con được cấu tạo từ 3 thành phần trở lên (tính cả 'this') [/comment]
+[comment] thì tức là sẽ cần lấy giá trị thuộc tính qua phương thức get trong Java [/comment]
+[query public propertyCallExpCompile(property: PropertyCallExp): String = 
+	let conElementSeq: Sequence(String) = property.toString().replaceAll('self', 'this').tokenize('.')
+	in if (conElementSeq->size() > 2) then 
+			conElementSeq->subSequence(1, 2)->append('get' + conElementSeq->at(3).toUpperFirst() + '()')->sep('.')->toString()
+		else 
+			conElementSeq->sep('.')->toString() 
+		endif
+/]
+
+[comment] Biên dịch Constraint [/comment]
+[comment] Sửa = thành ==, -> thành ., tiến hành biên dịch từng thành phần con nguyên vẹn rồi ghép lại [/comment]
+[query public constraintCompile(oclConstr: Constraint): String = 
+	let content: String = oclConstr.ownedSpecification._body
+			.replaceAll('->', '.').replaceAll('=', '==').replaceAll('>==', '>=').replaceAll('<==', '<='),
+		elementSeq: Sequence(PropertyCallExp) = oclConstr.getConstraintElement()
+	in elementSeq->iterate(p: PropertyCallExp; result: String = content |
+			result.replaceAll(p.toString().replaceAll('self.', '') , p.propertyCallExpCompile())
+		)
+/]
+
+[comment] Lấy các thành phần con nguyên vẹn của Action [/comment]
+[comment] Nếu chỉ có 1 gtri trả về, lấy luôn phần tử đầu tiên, [/comment]
+[comment] Nếu không, lấy ra các phần tử dựa vào vị trí tương tự như Constraint, [/comment]
+[comment] chúng đứng sau CollectionItem [/comment]
+[query public getActionElement(action: Action) : Sequence(PropertyCallExp) = 
+	let content: ObjVar = action.objVars->at(1),
+	 	collectionItemSeq: Sequence(OclAny) = content.type.ownedExpression.eAllContents(CollectionItem),
+		indexSeq: Sequence(Integer) = collectionItemSeq->collect(v| content.type.ownedExpression.eAllContents()->indexOf(v) + 1),
+		result: Sequence(OclAny) = 
+			if (content.type.ownedExpression.type.oclIsKindOf(CollectionType)) then indexSeq->select(i | 
+				if (content.type.ownedExpression.eAllContents()->at(i).oclIsTypeOf(PropertyCallExp)) then true 
+				else false endif)
+				->collect(i | content.type.ownedExpression.eAllContents()->at(i))
+			else 
+				content.type.ownedExpression.eAllContents(PropertyCallExp)->first()->asSequence()
+			endif
+	in result
+/]
+
+[comment] Biên dịch các giá trị hệ thống phản hồi lại actor [/comment]
+[comment] Lấy các thành phần con nguyên vẹn của Action, biên dịch chúng rồi ghép lại [/comment]
+[query public actionCompile(action: Action): String = 
+	let content: ObjVar = action.objVars->at(1)
+	in 'Object[] ' + content.name + ' = { ' + '\'' + action.actor.name + '\'' + ', ' + 
+		action.getActionElement()->collect(p: PropertyCallExp | p.propertyCallExpCompile())->sep(', ')->toString() + ' }'
+/]
+
+
+
+
+
+
